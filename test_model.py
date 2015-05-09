@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
-import db
-from db import Model, Query
 import pytest
+from inspect import ismethoddescriptor
+import db
+from db import Model, Field
+
 
 # Fixtures for Model
 
@@ -63,15 +65,19 @@ class TestSQLQuery:
         assert query._order_by == 'ORDER BY id DESC'
 
     def test_kwargs_to_sql_query_parse(self):
-        sql_query = Query._parse_conditions_to_sql(id=1, list_id=3)
+        sql_query = Model.objects._parse_conditions_to_sql(id=1, list_id=3)
         assert sql_query in (
             ' WHERE list_id = \'3\' AND id = \'1\'', ' WHERE id = \'1\' AND list_id = \'3\'')
 
     def test_create_update_sql(self):
         mock_instance = HelperModel(name='Something to do', list_id=1)
         mock_instance.id = 5
-        sql_query = mock_instance._create_update_sql()
+        sql_query = mock_instance.objects._create_update_sql()
         assert sql_query == "UPDATE helpermodel SET id = '5', list_id = '1', name = 'Something to do' WHERE id = 5"
+
+    def test_create_update_sql_table(self):
+        sql_query = HelperModel.objects._create_update_sql_table(name="Beer")
+        assert sql_query == "UPDATE helpermodel SET name = 'Beer'"
 
     def test_value_parse_to_dict(self):
         dict_value = HelperModel._value_parse_to_dict(1, 6, 'Buy new computer')
@@ -143,7 +149,9 @@ class HelperModel(Model):
     '''
         Helper model for more advanced tests
     '''
-    Fields = ('id', 'list_id', 'name')
+    # Fields = ('id', 'list_id', 'name')
+    list_id = Field(required=True)
+    name = Field(required=True)
 
     @staticmethod
     def create_table_for_test():
@@ -226,6 +234,11 @@ class TestHelperModel:
         instance = HelperModel.objects.get(id=instance_id)
         assert instance.name == 'Fly like cat'
 
+    def test_update_without_instance(self, list_helpermodel):
+        HelperModel.objects.update(name='Beer')
+        instances = HelperModel.objects.filter(name='Beer')
+        assert len(instances) == 4
+
     # Delete instance and delete by id are accurate in TestModel
 
     def test_create_helpermodel(self):
@@ -248,8 +261,8 @@ class TestHelperModel:
         instances = HelperModel.objects.all()[2:4]
         instances = list(instances)
         assert len(instances) == 2
-        assert instances[0].name == 'Buy carrot'
         assert instances[1].name == 'Read a book'
+        assert instances[0].name == 'Buy carrot'
 
     def test_filter_by_name(self, list_helpermodel):
         instances = HelperModel.objects.filter(name='Read a book')
@@ -282,3 +295,16 @@ class TestHelperModel:
         query = 'SELECT * FROM helpermodel where id > 2 and list_id = 1'
         instances = HelperModel.objects.execute_query(query)
         assert len(instances) == 1
+
+    def test_fiedls_have_validation(self, instance_helpermodel):
+        assert hasattr(instance_helpermodel, 'valid_name')
+        ismethoddescriptor(getattr(instance_helpermodel, 'valid_name'))
+
+
+    def test_validation_work_correctly(self):
+        instance = HelperModel(name='Beer', list_id=5)
+        assert instance.is_valid() is True
+
+    def test_validation_work_correctly_with_bad_data(self):
+        instance = HelperModel(list_id=5)
+        assert instance.is_valid() is False
