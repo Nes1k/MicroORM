@@ -28,7 +28,17 @@ def execute_sql(statement=None):
         conn.close()
 
 
-class Query:
+def BasicQuery(classname, supers, classdict):
+    aClass = type(classname, supers, classdict)
+
+    class Factory:
+
+        def __get__(self, instance, cls):
+            return aClass(instance, cls)
+
+    return Factory
+
+class Query(metaclass=BasicQuery):
 
     def __init__(self, instance, klass):
         self.instance = instance
@@ -37,7 +47,7 @@ class Query:
         self._conditions = {}
         self._order_by = None
         self._limit = None
-        super(Query, self).__init__()
+        # super(Query, self).__init__()
 
     def __call__(self):
         '''
@@ -48,6 +58,19 @@ class Query:
     def __iter__(self):
         if self._q is None:
             raise StopIteration
+        else:
+            self.build_query()
+            response_elements = execute_sql(self._q)
+            if response_elements is None:
+                raise StopIteration
+            for row in response_elements:
+                (*value, ) = row
+                value = self.klass._value_parse_to_dict(*value)
+                instance = self.klass(**value)
+                instance.id = value['id']
+                yield instance
+
+    def build_query(self):
         if self._conditions:
             self._q += ' ' + \
                 self._parse_conditions_to_sql(**self._conditions)
@@ -58,13 +81,6 @@ class Query:
         if self._limit:
             self._q += ' ' + self._limit
             self._limit = None
-
-        for row in execute_sql(self._q):
-            (*value, ) = row
-            value = self.klass._value_parse_to_dict(*value)
-            instance = self.klass(**value)
-            instance.id = value['id']
-            yield instance
 
     def __len__(self):
         return len(self.__call__())
@@ -114,7 +130,7 @@ class Query:
         sql_query += self._parse_conditions_to_sql(**kwargs)
         try:
             (*value, ) = execute_sql(sql_query).fetchone()
-        except TypeError:
+        except (TypeError, AttributeError):
             return None
         value = self.klass._value_parse_to_dict(*value)
         instance = self.klass(**value)
@@ -148,7 +164,10 @@ class Query:
     def count(self):
         table_name = self.klass.__name__.lower()
         sql_query = 'SELECT COUNT(*) FROM %s' % table_name
-        (number, ) = execute_sql(sql_query).fetchone()
+        try:
+            (number, ) = execute_sql(sql_query).fetchone()
+        except AttributeError:
+            return None
         return number
 
     def execute_query(self, query):
@@ -164,34 +183,101 @@ class Query:
             sql_query += '%s = \'%s\'' % (key, value)
         return sql_query
 
+    def update(self, **kwargs):
+        if self.instance:
+            execute_sql(self._create_update_sql())
+        else:
+            execute_sql(self._create_update_sql_table(**kwargs))
+
+    def _create_update_sql_table(self, **kwargs):
+        table_name = self.klass.__name__.lower()
+        sql_query = 'UPDATE %s SET ' % table_name
+        for field, value in kwargs.items():
+            if field in self.klass.Fields:
+                if not sql_query.endswith('SET '):
+                    sql_query += ', '
+                sql_query += '%s = \'%s\'' % (field, value)
+        return sql_query
+
+
+    def _create_update_sql(self):
+        table_name = self.klass.__name__.lower()
+        sql_query = 'UPDATE %s SET ' % table_name
+        for i in self.klass.Fields:
+            if not sql_query.endswith('SET '):
+                sql_query += ', '
+            sql_query += '%s = \'%s\'' % (i, getattr(self.instance, i))
+        sql_query += ' WHERE id = %i' % self.instance.id
+        return sql_query
+
+
+class Field:
+
+    def __init__(self, required=False, primary_key=False):
+        self.primary_key = primary_key
+        self.required = required
+        self.instance = None
+
+    def __get__(self, instance, klass):
+        return getattr(instance, str(id(self)))
+
+    def __set__(self, instance, value):
+        setattr(instance, str(id(self)), value)
+
+    def simple_valid(self):
+        def validation(instance):
+            value = getattr(instance, str(id(self)))
+            if self.required and not value:
+                return False
+            else:
+                return True
+        return validation
+
 
 class BasicModel(type):
 
     def __new__(meta, classname, supers, classdict):
-        classdict = meta.parse_fields(classdict)
+        fields = {}
+        for klass in supers:
+            fields.update(meta.parse_fields(klass))
+        fields.update(meta.parse_dict_for_fields(classdict))
+        classdict['Fields'] = tuple(sorted(fields))
+        meta.create_validation_for_field(classdict, fields)
         return type.__new__(meta, classname, supers, classdict)
 
-    @staticmethod
-    def parse_fields(classdict):
+    @classmethod
+    def parse_fields(cls, klass):
         '''
             Check if class doesn't have attribute of Fields then add it with id field
         '''
-        if 'Fields' not in classdict:
-            classdict['Fields'] = ('id', )
-        else:
-            for key in classdict:
-                if key == 'Fields':
-                    classdict[key] = BasicModel.check_id(classdict[key])
-        return classdict
+        fields = {}
+
+        for supercls in klass.__bases__:
+            fields.update(cls.parse_fields(supercls))
+        if klass.__name__ != 'object':
+            fields.update(cls.parse_dict_for_fields(klass.__dict__))
+        return fields
 
     @staticmethod
-    def check_id(fields):
-        if 'id' not in fields:
-            return ('id', ) + fields
+    def parse_dict_for_fields(classdict):
+        '''
+            Creates list of fields
+        '''
+        fields = {}
+        for attr, value in classdict.items():
+            if isinstance(value, Field):
+                fields[attr] = value
         return fields
+
+    @staticmethod
+    def create_validation_for_field(classdict, fields_dict):
+        for field, value in fields_dict.items():
+            valid_field_name = 'valid_' + field
+            classdict[valid_field_name] = value.simple_valid()
 
 
 class Model(metaclass=BasicModel):
+    id = Field(primary_key=True, required=False)
 
     def __init__(self, *args, **kwargs):
         '''
@@ -201,9 +287,9 @@ class Model(metaclass=BasicModel):
         for field in self.__class__.Fields:
             if field != 'id':
                 try:
-                    self.__dict__[field] = kwargs[field]
+                    setattr(self, field, kwargs[field])
                 except KeyError:
-                    self.__dict__[field] = None
+                    setattr(self, field, None)
 
     def save(self):
         if self.id is None:
@@ -216,11 +302,18 @@ class Model(metaclass=BasicModel):
         return self
 
     def update(self):
-        if self.id:
-            execute_sql(self._create_update_sql())
+        self.objects.update()
 
     def delete(self):
         self.objects.delete()
+
+    def is_valid(self):
+        for field in self.__class__.Fields:
+            valid_field_name = 'valid_' + field
+            # Execute validation method for all fields
+            if not getattr(self, valid_field_name)():
+                return False
+        return True
 
     class _fields_values_to_str:
 
@@ -243,21 +336,11 @@ class Model(metaclass=BasicModel):
                     value_of_dict = kwargs
                     value_of_dict['id'] = None
                 for i in cls.Fields:
-                    value.append(value_of_dict[i])
+                    value.append(getattr(instance, i))
                 return (str(tuple(value))).replace('None', 'NULL')
             return partial(fields_values_to_str, instance, cls)
 
     _fields_values_to_str = _fields_values_to_str()
-
-    def _create_update_sql(self):
-        table_name = self.__class__.__name__.lower()
-        sql_query = 'UPDATE %s SET ' % table_name
-        for i in self.__class__.Fields:
-            if not sql_query.endswith('SET '):
-                sql_query += ', '
-            sql_query += '%s = \'%s\'' % (i, self.__dict__[i])
-        sql_query += ' WHERE id = %i' % self.id
-        return sql_query
 
     @classmethod
     def _value_parse_to_dict(cls, *value):
@@ -286,9 +369,4 @@ class Model(metaclass=BasicModel):
             tuple_of_fields += key
         return tuple_of_fields
 
-    class objects:
-
-        def __get__(self, instance, cls):
-            return Query(instance, cls)
-
-    objects = objects()
+    objects = Query()
