@@ -147,6 +147,16 @@ class Query(metaclass=BasicQuery):
         instance.id = value['id']
         return instance
 
+    def get_in_json(self, **kwargs):
+        sql_query = self.klass._simple_query()
+        sql_query += self._parse_conditions_to_sql(**kwargs)
+        try:
+            (*value, ) = execute_sql(sql_query).fetchone()
+        except (TypeError, AttributeError):
+            return None
+        value = self.klass._value_parse_to_dict(*value)
+        return json.dumps(value)
+
     def all(self):
         self._q = self.klass._simple_query()
         return self

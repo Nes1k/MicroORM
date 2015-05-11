@@ -365,3 +365,7 @@ class TestForJsonFeature(BasicTestHelperModel):
         raw_json = json.dumps(helpermodels_in_dict[3])
         HelperModel.objects.get_or_create(raw_json=raw_json)
         assert HelperModel.objects.count() == 4
+
+    def test_get_in_json(self, list_helpermodel, helpermodels_in_dict):
+        raw_json = HelperModel.objects.get_in_json(id=2)
+        assert json.loads(raw_json) == helpermodels_in_dict[1]
