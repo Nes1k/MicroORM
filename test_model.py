@@ -85,6 +85,31 @@ class TestSQLQuery:
             'name': 'Buy new computer', 'list_id': 6, 'id': 1}
 
 
+class TestForUniqueQuery:
+
+    @classmethod
+    def setup_class(cls):
+        db.execute_sql(
+            'CREATE TABLE model (id INTEGER UNSIGNED AUTO_INCREMENT PRIMARY KEY)')
+
+    @classmethod
+    def teardown_class(cls):
+        db.execute_sql('DROP TABLE model')
+
+    def teardown(self):
+        db.execute_sql('TRUNCATE model')
+
+    def test_unique_query_from_class(self):
+        query_1 = Model.objects.all()
+        query_2 = Model.objects.all()
+        assert id(query_1) != id(query_2)
+
+    def test_unique_query_from_instance(self, instance_model):
+        query_1 = instance_model.objects.all()
+        query_2 = instance_model.objects.all()
+        assert id(query_1) != id(query_2)
+
+
 class TestModel:
 
     @classmethod
@@ -299,7 +324,6 @@ class TestHelperModel:
     def test_fiedls_have_validation(self, instance_helpermodel):
         assert hasattr(instance_helpermodel, 'valid_name')
         ismethoddescriptor(getattr(instance_helpermodel, 'valid_name'))
-
 
     def test_validation_work_correctly(self):
         instance = HelperModel(name='Beer', list_id=5)

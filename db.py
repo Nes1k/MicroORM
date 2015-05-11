@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 
 import MySQLdb
-from functools import partial
 
 con_params = {
     'db': 'todo',
@@ -29,6 +28,9 @@ def execute_sql(statement=None):
 
 
 def BasicQuery(classname, supers, classdict):
+    '''
+        This metafunc provides always new query instance
+    '''
     aClass = type(classname, supers, classdict)
 
     class Factory:
@@ -37,6 +39,7 @@ def BasicQuery(classname, supers, classdict):
             return aClass(instance, cls)
 
     return Factory
+
 
 class Query(metaclass=BasicQuery):
 
@@ -47,7 +50,6 @@ class Query(metaclass=BasicQuery):
         self._conditions = {}
         self._order_by = None
         self._limit = None
-        # super(Query, self).__init__()
 
     def __call__(self):
         '''
@@ -199,7 +201,6 @@ class Query(metaclass=BasicQuery):
                 sql_query += '%s = \'%s\'' % (field, value)
         return sql_query
 
-
     def _create_update_sql(self):
         table_name = self.klass.__name__.lower()
         sql_query = 'UPDATE %s SET ' % table_name
@@ -315,32 +316,22 @@ class Model(metaclass=BasicModel):
                 return False
         return True
 
-    class _fields_values_to_str:
-
+    def _fields_values_to_str(self):
         '''
-            Prepared tuple in string of object fields values or kwargs values
-            in the order of fields
+            Prepared tuple in string of object fields
+            values in the order of fields
             Fields = ('id', 'list_id', 'name')
             {'name': 'Something', 'list_id': 5}
             > (5, 'Something)
+            If only one field then assume it is
+            'id' field then should be null for save
         '''
-
-        def __get__(self, instance, cls):
-            def fields_values_to_str(instance=None, cls=None, **kwargs):
-                if len(cls.Fields) == 1:
-                    return "(NULL)"
-                value = []
-                if instance:
-                    value_of_dict = instance.__dict__
-                else:
-                    value_of_dict = kwargs
-                    value_of_dict['id'] = None
-                for i in cls.Fields:
-                    value.append(getattr(instance, i))
-                return (str(tuple(value))).replace('None', 'NULL')
-            return partial(fields_values_to_str, instance, cls)
-
-    _fields_values_to_str = _fields_values_to_str()
+        if len(self.__class__.Fields) == 1:
+            return "(NULL)"
+        value = []
+        for i in self.__class__.Fields:
+            value.append(getattr(self, i))
+        return (str(tuple(value))).replace('None', 'NULL')
 
     @classmethod
     def _value_parse_to_dict(cls, *value):
