@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import MySQLdb
+import json
 
 con_params = {
     'db': 'todo',
@@ -103,12 +104,16 @@ class Query(metaclass=BasicQuery):
                 self._limit = 'LIMIT %s, %s ' % start_number
         return self
 
-    def create(self, **kwargs):
+    def create(self, raw_json=None, **kwargs):
         '''
             Create, save and returned instance of object
         '''
+        if raw_json is not None:
+            kwargs_from_json = json.loads(raw_json)
+            kwargs.update(kwargs_from_json)
         instance = self.klass(**kwargs)
-        instance.save()
+        if instance.is_valid():
+            instance.save()
         return instance
 
     def delete(self, id=None):
@@ -118,7 +123,10 @@ class Query(metaclass=BasicQuery):
                                                     id or self.instance.id)
             execute_sql(sql)
 
-    def get_or_create(self, **kwargs):
+    def get_or_create(self, raw_json=None, **kwargs):
+        if raw_json is not None:
+            kwargs_from_json = json.loads(raw_json)
+            kwargs.update(kwargs_from_json)
         instance = None
         if kwargs.get('id', None):
             instance = self.get(id=kwargs['id'])
@@ -153,6 +161,9 @@ class Query(metaclass=BasicQuery):
 
     def order_by(self, *args):
         sql_query = 'ORDER BY '
+        if not args:
+            self._order_by = sql_query + 'id ASC'
+            return self
         for key in args:
             if sql_query != 'ORDER BY ':
                 sql_query += ', '
@@ -175,6 +186,19 @@ class Query(metaclass=BasicQuery):
     def execute_query(self, query):
         self._q = query
         return list(self)
+
+    def json(self):
+        '''
+            Invoke self iter for list, created dict of fields
+            and value of instance then dump for raw json.
+        '''
+        instances_list = []
+        for instance in list(self.__iter__()):
+            instance_to_dict = {}
+            for field in self.klass.Fields:
+                instance_to_dict[field] = getattr(instance, field)
+            instances_list.append(instance_to_dict)
+        return json.dumps(instances_list)
 
     @classmethod
     def _parse_conditions_to_sql(cls, **kwargs):

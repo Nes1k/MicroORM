@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import pytest
+import json
 from inspect import ismethoddescriptor
 import db
 from db import Model, Field
@@ -86,7 +87,7 @@ class TestSQLQuery:
             'name': 'Buy new computer', 'list_id': 6, 'id': 1}
 
 
-class TestForUniqueQuery:
+class BasicTestModel:
 
     @classmethod
     def setup_class(cls):
@@ -99,6 +100,9 @@ class TestForUniqueQuery:
 
     def teardown(self):
         db.execute_sql('TRUNCATE model')
+
+
+class TestForUniqueQuery(BasicTestModel):
 
     def test_unique_query_from_class(self):
         query_1 = Model.objects.all()
@@ -111,19 +115,7 @@ class TestForUniqueQuery:
         assert id(query_1) != id(query_2)
 
 
-class TestModel:
-
-    @classmethod
-    def setup_class(cls):
-        db.execute_sql(
-            'CREATE TABLE model (id INTEGER UNSIGNED AUTO_INCREMENT PRIMARY KEY)')
-
-    @classmethod
-    def teardown_class(cls):
-        db.execute_sql('DROP TABLE model')
-
-    def teardown(self):
-        db.execute_sql('TRUNCATE model')
+class TestModel(BasicTestModel):
 
     def test_add_id_fields(self):
         assert hasattr(Model, 'Fields')
@@ -209,7 +201,16 @@ def list_helpermodel():
            ]
 
 
-class TestHelperModel:
+@pytest.fixture(scope='function')
+def helpermodels_in_dict():
+    return [{'id': 1, 'list_id': 1, 'name': 'Something to do'},
+            {'id': 2, 'list_id': 2, 'name': 'Read a book'},
+            {'id': 3, 'list_id': 2, 'name': 'Buy carrot'},
+            {'id': 4, 'list_id': 1, 'name': 'Read a book'}
+            ]
+
+
+class BasicTestHelperModel:
 
     @classmethod
     def setup_class(cls):
@@ -221,6 +222,9 @@ class TestHelperModel:
 
     def teardown(self):
         db.execute_sql('TRUNCATE helpermodel')
+
+
+class TestHelperModel(BasicTestHelperModel):
 
     def test_parse_fields(self):
         assert HelperModel._parse_fields() == 'id, list_id, name'
@@ -333,3 +337,31 @@ class TestHelperModel:
     def test_validation_work_correctly_with_bad_data(self):
         instance = HelperModel(list_id=5)
         assert instance.is_valid() is False
+
+
+class TestForJsonFeature(BasicTestHelperModel):
+
+    def test_to_json_all(self, list_helpermodel, helpermodels_in_dict):
+        raw_json = HelperModel.objects.all().json()
+        assert json.loads(raw_json) == helpermodels_in_dict
+
+    def test_to_json_filter_order_by(self, list_helpermodel, helpermodels_in_dict):
+        raw_json = HelperModel.objects.filter(list_id=2).order_by('-id').json()
+        # Get elements with id: 2, 3 and next reversed this list
+        instances = helpermodels_in_dict[1:3][::-1]
+        assert json.loads(raw_json) == instances
+
+    def test_create_from_json(self, helpermodels_in_dict):
+        raw_json = json.dumps(helpermodels_in_dict[3])
+        HelperModel.objects.create(raw_json=raw_json)
+        assert HelperModel.objects.count() == 1
+
+    def test_get_or_create_from_json_if_not_exist(self, helpermodels_in_dict):
+        raw_json = json.dumps(helpermodels_in_dict[0])
+        HelperModel.objects.get_or_create(raw_json=raw_json)
+        assert HelperModel.objects.count() == 1
+
+    def test_get_or_create_from_json_if_exist(self, list_helpermodel, helpermodels_in_dict):
+        raw_json = json.dumps(helpermodels_in_dict[3])
+        HelperModel.objects.get_or_create(raw_json=raw_json)
+        assert HelperModel.objects.count() == 4
