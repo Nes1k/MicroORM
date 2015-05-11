@@ -214,9 +214,8 @@ class Query(metaclass=BasicQuery):
 
 class Field:
 
-    def __init__(self, required=False, primary_key=False):
-        self.primary_key = primary_key
-        self.required = required
+    def __init__(self, blank=True):
+        self.blank = blank
         self.instance = None
 
     def __get__(self, instance, klass):
@@ -228,7 +227,7 @@ class Field:
     def simple_valid(self):
         def validation(instance):
             value = getattr(instance, str(id(self)))
-            if self.required and not value:
+            if not self.blank and not value:
                 return False
             else:
                 return True
@@ -278,7 +277,7 @@ class BasicModel(type):
 
 
 class Model(metaclass=BasicModel):
-    id = Field(primary_key=True, required=False)
+    id = Field(blank=True)
 
     def __init__(self, *args, **kwargs):
         '''

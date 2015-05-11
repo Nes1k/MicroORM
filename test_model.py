@@ -67,7 +67,8 @@ class TestSQLQuery:
     def test_kwargs_to_sql_query_parse(self):
         sql_query = Model.objects._parse_conditions_to_sql(id=1, list_id=3)
         assert sql_query in (
-            ' WHERE list_id = \'3\' AND id = \'1\'', ' WHERE id = \'1\' AND list_id = \'3\'')
+            ' WHERE list_id = \'3\' AND id = \'1\'',
+            ' WHERE id = \'1\' AND list_id = \'3\'')
 
     def test_create_update_sql(self):
         mock_instance = HelperModel(name='Something to do', list_id=1)
@@ -175,8 +176,8 @@ class HelperModel(Model):
         Helper model for more advanced tests
     '''
     # Fields = ('id', 'list_id', 'name')
-    list_id = Field(required=True)
-    name = Field(required=True)
+    list_id = Field(blank=False)
+    name = Field(blank=False)
 
     @staticmethod
     def create_table_for_test():
