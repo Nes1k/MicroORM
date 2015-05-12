@@ -5,10 +5,10 @@ from datetime import datetime
 import json
 
 con_params = {
-    'db': 'todo',
+    'db': '',
     'host': 'localhost',
-    'user': 'cbuser',
-    'passwd': 'cbpass'
+    'user': '',
+    'passwd': ''
 }
 
 
@@ -137,6 +137,9 @@ class Query(metaclass=BasicQuery):
         return instance
 
     def get(self, **kwargs):
+        '''
+            Returns instance of Model
+        '''
         sql_query = self.klass._simple_query()
         sql_query += self._parse_conditions_to_sql(**kwargs)
         try:
@@ -149,6 +152,9 @@ class Query(metaclass=BasicQuery):
         return instance
 
     def get_in_json(self, **kwargs):
+        '''
+            Returns one Model in json
+        '''
         sql_query = self.klass._simple_query()
         sql_query += self._parse_conditions_to_sql(**kwargs)
         try:
@@ -164,7 +170,8 @@ class Query(metaclass=BasicQuery):
 
     def filter(self, **kwargs):
         '''
-        Build dict of conditions
+            Build dict of conditions
+            TODO: Add support for advanced comparison
         '''
         self._q = self.klass._simple_query()
         self._conditions.update(kwargs)
@@ -220,13 +227,20 @@ class Query(metaclass=BasicQuery):
             sql_query += '%s = \'%s\'' % (key, value)
         return sql_query
 
-    def update(self, **kwargs):
+    def update(self, raw_json=None, resp_json=False, **kwargs):
         if self.instance:
             execute_sql(self._create_update_sql())
         else:
-            execute_sql(self._create_update_sql_table(**kwargs))
+            if raw_json is not None:
+                kwargs_from_json = json.loads(raw_json)
+                kwargs.update(kwargs_from_json)
+            execute_sql(self._create_update_sql_from_kwargs(**kwargs))
+            if kwargs.get('id', None):
+                if resp_json:
+                    return self.get_in_json(id=kwargs['id'])
+                return self.get(id=kwargs['id'])
 
-    def _create_update_sql_table(self, **kwargs):
+    def _create_update_sql_from_kwargs(self, **kwargs):
         table_name = self.klass.__name__.lower()
         sql_query = 'UPDATE %s SET ' % table_name
         for field, value in kwargs.items():
@@ -234,9 +248,14 @@ class Query(metaclass=BasicQuery):
                 if not sql_query.endswith('SET '):
                     sql_query += ', '
                 sql_query += '%s = \'%s\'' % (field, value)
+        if kwargs.get('id', None):
+            sql_query += ' WHERE id = %i' % kwargs['id']
         return sql_query
 
     def _create_update_sql(self):
+        '''
+            Create query SQL when exist instance of Model
+        '''
         table_name = self.klass.__name__.lower()
         sql_query = 'UPDATE %s SET ' % table_name
         for i in self.klass.Fields:
@@ -251,7 +270,6 @@ class Field:
 
     def __init__(self, blank=True):
         self.blank = blank
-        self.instance = None
 
     def __get__(self, instance, klass):
         return getattr(instance, str(id(self)))
@@ -283,7 +301,7 @@ class BasicModel(type):
     @classmethod
     def parse_fields(cls, klass):
         '''
-            Check if class doesn't have attribute of Fields then add it with id field
+            Moves through in all bases of classes and builds dict of fields
         '''
         fields = {}
 
@@ -296,7 +314,7 @@ class BasicModel(type):
     @staticmethod
     def parse_dict_for_fields(classdict):
         '''
-            Creates list of fields
+            Creates dict of fields and instance Field object
         '''
         fields = {}
         for attr, value in classdict.items():
@@ -306,6 +324,9 @@ class BasicModel(type):
 
     @staticmethod
     def create_validation_for_field(classdict, fields_dict):
+        '''
+            Creating aliases for simple validations of fields
+        '''
         for field, value in fields_dict.items():
             valid_field_name = 'valid_' + field
             classdict[valid_field_name] = value.simple_valid()
@@ -316,7 +337,7 @@ class Model(metaclass=BasicModel):
 
     def __init__(self, *args, **kwargs):
         '''
-            Create object attribute from class Fields
+            Create object attribute from class attribute of Fields
         '''
         self.id = None
         for field in self.__class__.Fields:
@@ -327,6 +348,9 @@ class Model(metaclass=BasicModel):
                     setattr(self, field, None)
 
     def save(self):
+        '''
+            Saved is only if doesn't has id
+        '''
         if self.id is None:
             table_name = self.__class__.__name__.lower()
             sql_query = '''INSERT INTO %s (%s) values%s ''' % (
@@ -343,9 +367,12 @@ class Model(metaclass=BasicModel):
         self.objects.delete()
 
     def is_valid(self):
+        '''
+            Executing methods of validation for all fields
+        '''
         for field in self.__class__.Fields:
+            # Preparing names of validation methods for field
             valid_field_name = 'valid_' + field
-            # Execute validation method for all fields
             if not getattr(self, valid_field_name)():
                 return False
         return True
@@ -370,7 +397,7 @@ class Model(metaclass=BasicModel):
     @classmethod
     def _value_parse_to_dict(cls, *value):
         '''
-            Combines correct of value with fields
+            Combines correct of value with fields and return dict
         '''
         dict_values = {}
         for field, value in zip(cls.Fields, value):
@@ -379,6 +406,9 @@ class Model(metaclass=BasicModel):
 
     @classmethod
     def _simple_query(cls):
+        '''
+            Simple SQL query with names of fields and table name
+        '''
         return 'SELECT %s FROM %s' % (cls._parse_fields(), cls.__name__.lower())
 
     @classmethod

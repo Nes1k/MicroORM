@@ -78,8 +78,9 @@ class TestSQLQuery:
         sql_query = mock_instance.objects._create_update_sql()
         assert sql_query == "UPDATE helpermodel SET id = '5', list_id = '1', name = 'Something to do' WHERE id = 5"
 
-    def test_create_update_sql_table(self):
-        sql_query = HelperModel.objects._create_update_sql_table(name="Beer")
+    def _create_update_sql_from_kwargs(self):
+        sql_query = HelperModel.objects._create_update_sql_from_kwargs(
+            name="Beer")
         assert sql_query == "UPDATE helpermodel SET name = 'Beer'"
 
     def test_value_parse_to_dict(self):
@@ -375,3 +376,25 @@ class TestForJsonFeature(BasicTestHelperModel):
         instance = {'time': datetime(2015, 2, 15), 'name': 'John'}
         response = json.dumps(instance, default=json_serial)
         assert response
+
+    def test_update_from_json(self, list_helpermodel):
+        # {'id': 2, 'list_id': 2, 'name': 'Read a book'}
+        helpermodel_json = json.dumps(
+            {'id': 2, 'list_id': 3, 'name': 'Beer'})
+        HelperModel.objects.update(raw_json=helpermodel_json)
+        instance = HelperModel.objects.get(id=2)
+        assert instance.name == 'Beer'
+        assert instance.list_id == 3
+
+    def test_update_from_json_return_instance(self, list_helpermodel):
+        helpermodel_json = json.dumps(
+            {'id': 2, 'list_id': 3, 'name': 'Beer'})
+        instance = HelperModel.objects.update(raw_json=helpermodel_json)
+        assert instance.name == 'Beer'
+        assert instance.list_id == 3
+
+    def test_update_from_json_return_json(self, list_helpermodel):
+        helpermodel_json = json.dumps(
+            {'id': 2, 'list_id': 3, 'name': 'Beer'})
+        raw_json = HelperModel.objects.update(raw_json=helpermodel_json, resp_json=True)
+        assert json.loads(raw_json) == {'id': 2, 'list_id': 3, 'name': 'Beer'}
