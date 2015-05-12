@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 import pytest
 import json
+from datetime import datetime
 from inspect import ismethoddescriptor
 import db
-from db import Model, Field
+from db import Model, Field, json_serial
 
 
 # Fixtures for Model
@@ -369,3 +370,8 @@ class TestForJsonFeature(BasicTestHelperModel):
     def test_get_in_json(self, list_helpermodel, helpermodels_in_dict):
         raw_json = HelperModel.objects.get_in_json(id=2)
         assert json.loads(raw_json) == helpermodels_in_dict[1]
+
+    def test_json_datetime_serialize(self):
+        instance = {'time': datetime(2015, 2, 15), 'name': 'John'}
+        response = json.dumps(instance, default=json_serial)
+        assert response

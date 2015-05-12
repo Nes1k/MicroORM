@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import MySQLdb
+from datetime import datetime
 import json
 
 con_params = {
@@ -155,7 +156,7 @@ class Query(metaclass=BasicQuery):
         except (TypeError, AttributeError):
             return None
         value = self.klass._value_parse_to_dict(*value)
-        return json.dumps(value)
+        return json.dumps(value, default=json_serial)
 
     def all(self):
         self._q = self.klass._simple_query()
@@ -208,7 +209,7 @@ class Query(metaclass=BasicQuery):
             for field in self.klass.Fields:
                 instance_to_dict[field] = getattr(instance, field)
             instances_list.append(instance_to_dict)
-        return json.dumps(instances_list)
+        return json.dumps(instances_list, default=json_serial)
 
     @classmethod
     def _parse_conditions_to_sql(cls, **kwargs):
@@ -394,3 +395,14 @@ class Model(metaclass=BasicModel):
         return tuple_of_fields
 
     objects = Query()
+
+# Helpers
+
+
+def json_serial(obj):
+    """JSON serializer for objects not serializable by default json code"""
+
+    if isinstance(obj, datetime):
+        serial = obj.isoformat()
+        return serial
+    raise TypeError("Type not serializable")
