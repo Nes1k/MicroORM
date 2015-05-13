@@ -396,5 +396,6 @@ class TestForJsonFeature(BasicTestHelperModel):
     def test_update_from_json_return_json(self, list_helpermodel):
         helpermodel_json = json.dumps(
             {'id': 2, 'list_id': 3, 'name': 'Beer'})
-        raw_json = HelperModel.objects.update(raw_json=helpermodel_json, resp_json=True)
+        raw_json = HelperModel.objects.update(
+            raw_json=helpermodel_json, resp_json=True)
         assert json.loads(raw_json) == {'id': 2, 'list_id': 3, 'name': 'Beer'}
