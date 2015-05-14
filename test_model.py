@@ -10,16 +10,17 @@ from db import Model, Field, json_serial
 # Fixtures for Model
 
 
-@pytest.yield_fixture(scope='function')
+@pytest.fixture(scope='function')
 def instance_model():
-    yield Model().save()
-    # database.execute_sql('TRUNCATE model')
+    return Model().save()
 
 
-@pytest.yield_fixture(scope='function')
+@pytest.fixture(scope='function')
 def list_models():
-    yield [Model().save(), Model().save(), Model().save(), Model().save()]
-    # database.execute_sql('TRUNCATE model')
+    '''
+    Returns 4 instances of model
+    '''
+    return [Model().save() for x in range(1, 5)]
 
 
 class TestConnect:
@@ -128,6 +129,14 @@ class TestModel(BasicTestModel):
         assert instance._fields_values_to_str(
         ) == "(NULL)"
 
+    def test_str(self):
+        instance = Model()
+        assert instance.__str__() == 'Object'
+
+    def test_repr(self):
+        instance = Model()
+        assert instance.__repr__() == '<Model: Object>'
+
     def test_count_model(self):
         assert Model.objects.count() == 0
 
@@ -173,6 +182,9 @@ class HelperModel(Model):
     list_id = Field(blank=False)
     name = Field(blank=False)
 
+    def __str__(self):
+        return self.name
+
     @staticmethod
     def create_table_for_test():
         db.execute_sql('''
@@ -189,19 +201,6 @@ class HelperModel(Model):
 
 
 # Fixtures for HelperModel
-@pytest.yield_fixture(scope='function')
-def instance_helpermodel():
-    yield HelperModel(name='Something to do', list_id=1).save()
-
-
-@pytest.yield_fixture(scope='function')
-def list_helpermodel():
-    yield [HelperModel(name='Something to do', list_id=1).save(),
-           HelperModel(name='Read a book', list_id=2).save(),
-           HelperModel(name='Buy carrot', list_id=2).save(),
-           HelperModel(name='Read a book', list_id=1).save()
-           ]
-
 
 @pytest.fixture(scope='function')
 def helpermodels_in_dict():
@@ -210,6 +209,18 @@ def helpermodels_in_dict():
             {'id': 3, 'list_id': 2, 'name': 'Buy carrot'},
             {'id': 4, 'list_id': 1, 'name': 'Read a book'}
             ]
+
+@pytest.fixture(scope='function')
+def instance_helpermodel(helpermodels_in_dict):
+    return HelperModel(**helpermodels_in_dict[0]).save()
+
+
+@pytest.fixture(scope='function')
+def list_helpermodel(helpermodels_in_dict):
+    '''
+    Saves all helpermodel from dict and returns list of instance
+    '''
+    return [HelperModel(**model).save() for model in helpermodels_in_dict]
 
 
 class BasicTestHelperModel:
@@ -227,6 +238,10 @@ class BasicTestHelperModel:
 
 
 class TestHelperModel(BasicTestHelperModel):
+
+    def test_repr(self, helpermodels_in_dict):
+        instance = HelperModel(**helpermodels_in_dict[0])
+        assert instance.__repr__() == '<HelperModel: Something to do>'
 
     def test_parse_fields(self):
         assert HelperModel._parse_fields() == 'id, list_id, name'

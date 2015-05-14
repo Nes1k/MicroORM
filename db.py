@@ -74,18 +74,6 @@ class Query(metaclass=BasicQuery):
                 instance.id = value['id']
                 yield instance
 
-    def build_query(self):
-        if self._conditions:
-            self._q += ' ' + \
-                self._parse_conditions_to_sql(**self._conditions)
-            self._conditions = {}
-        if self._order_by:
-            self._q += ' ' + self._order_by
-            self._order_by = None
-        if self._limit:
-            self._q += ' ' + self._limit
-            self._limit = None
-
     def __len__(self):
         return len(self.__call__())
 
@@ -104,6 +92,18 @@ class Query(metaclass=BasicQuery):
             else:
                 self._limit = 'LIMIT %s, %s ' % start_number
         return self
+
+    def build_query(self):
+        if self._conditions:
+            self._q += ' ' + \
+                self._parse_conditions_to_sql(**self._conditions)
+            self._conditions = {}
+        if self._order_by:
+            self._q += ' ' + self._order_by
+            self._order_by = None
+        if self._limit:
+            self._q += ' ' + self._limit
+            self._limit = None
 
     def create(self, raw_json=None, **kwargs):
         '''
@@ -347,6 +347,12 @@ class Model(metaclass=BasicModel):
                 except KeyError:
                     setattr(self, field, None)
 
+    def __str__(self):
+        return 'Object'
+
+    def __repr__(self):
+        return '<%s: %s>' % (self.__class__.__name__, self.__str__())
+
     def save(self):
         '''
             Saved is only if doesn't has id
@@ -414,8 +420,8 @@ class Model(metaclass=BasicModel):
     @classmethod
     def _parse_fields(cls):
         '''
-        > Fields = ('id', 'list_id', 'name')
-        > tuple_of_fields = 'id, list_id, name'
+            > Fields = ('id', 'list_id', 'name')
+            > tuple_of_fields = 'id, list_id, name'
         '''
         tuple_of_fields = ''
         for key in cls.Fields:
@@ -430,7 +436,9 @@ class Model(metaclass=BasicModel):
 
 
 def json_serial(obj):
-    """JSON serializer for objects not serializable by default json code"""
+    '''
+        JSON serializer for objects not serializable by default json code
+    '''
 
     if isinstance(obj, datetime):
         serial = obj.isoformat()
