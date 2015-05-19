@@ -61,6 +61,14 @@ class TestSQLQuery:
         assert query._q == 'SELECT id FROM model'
         assert query._conditions == {'id': 5, 'list_id': 11}
 
+    def test_filter_greater_than(self):
+        sql_query = Model.objects._parse_conditions_to_sql(id__gt=1)
+        assert sql_query == ' WHERE id > \'1\''
+
+    def test_filter_greater_than_or_equal(self):
+        sql_query = Model.objects._parse_conditions_to_sql(id__gte=1)
+        assert sql_query == ' WHERE id >= \'1\''
+
     def test_fluent_all_model_order_by_and_advenced_limit(self):
         query = Model.objects.all().order_by('-id')[3:7]
         assert query._q == 'SELECT id FROM model'
@@ -68,10 +76,8 @@ class TestSQLQuery:
         assert query._order_by == 'ORDER BY id DESC'
 
     def test_kwargs_to_sql_query_parse(self):
-        sql_query = Model.objects._parse_conditions_to_sql(id=1, list_id=3)
-        assert sql_query in (
-            ' WHERE list_id = \'3\' AND id = \'1\'',
-            ' WHERE id = \'1\' AND list_id = \'3\'')
+        sql_query = Model.objects._parse_conditions_to_sql(id=1)
+        assert sql_query == ' WHERE id = \'1\''
 
     def test_create_update_sql(self):
         mock_instance = HelperModel(name='Something to do', list_id=1)
@@ -79,7 +85,7 @@ class TestSQLQuery:
         sql_query = mock_instance.objects._create_update_sql()
         assert sql_query == "UPDATE helpermodel SET id = '5', list_id = '1', name = 'Something to do' WHERE id = 5"
 
-    def _create_update_sql_from_kwargs(self):
+    def test_create_update_sql_from_kwargs(self):
         sql_query = HelperModel.objects._create_update_sql_from_kwargs(
             name="Beer")
         assert sql_query == "UPDATE helpermodel SET name = 'Beer'"
@@ -123,6 +129,12 @@ class TestModel(BasicTestModel):
     def test_add_id_fields(self):
         assert hasattr(Model, 'Fields')
         assert 'id' in Model.Fields
+
+    def test_pk_attribute(self):
+        instance = Model()
+        assert hasattr(instance, 'pk')
+        instance.id = 5
+        assert instance.pk == instance.id
 
     def test_one_field_values_to_str(self):
         instance = Model()
@@ -209,6 +221,7 @@ def helpermodels_in_dict():
             {'id': 3, 'list_id': 2, 'name': 'Buy carrot'},
             {'id': 4, 'list_id': 1, 'name': 'Read a book'}
             ]
+
 
 @pytest.fixture(scope='function')
 def instance_helpermodel(helpermodels_in_dict):
@@ -342,6 +355,7 @@ class TestHelperModel(BasicTestHelperModel):
         query = 'SELECT * FROM helpermodel where id > 2 and list_id = 1'
         instances = HelperModel.objects.execute_query(query)
         assert len(instances) == 1
+        assert list(instances)[0].name == 'Read a book'
 
     def test_fiedls_have_validation(self, instance_helpermodel):
         assert hasattr(instance_helpermodel, 'valid_name')
@@ -384,7 +398,7 @@ class TestForJsonFeature(BasicTestHelperModel):
         assert HelperModel.objects.count() == 4
 
     def test_get_in_json(self, list_helpermodel, helpermodels_in_dict):
-        raw_json = HelperModel.objects.get_in_json(id=2)
+        raw_json = HelperModel.objects.get(id=2, resp_json=True)
         assert json.loads(raw_json) == helpermodels_in_dict[1]
 
     def test_json_datetime_serialize(self):

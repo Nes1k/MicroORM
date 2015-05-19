@@ -12,23 +12,6 @@ con_params = {
 }
 
 
-def connect():
-    return MySQLdb.connect(**con_params)
-
-
-def execute_sql(statement=None):
-    try:
-        conn = connect()
-        cursor = conn.cursor()
-        cursor.execute(statement)
-        conn.commit()
-        return cursor
-    except MySQLdb.OperationalError:
-        return None
-    else:
-        conn.close()
-
-
 def BasicQuery(classname, supers, classdict):
     '''
         This metafunc provides always new query instance
@@ -45,6 +28,17 @@ def BasicQuery(classname, supers, classdict):
 
 class Query(metaclass=BasicQuery):
 
+    '''Instance builds query for the databases
+
+    Attributes:
+      instance : Instance of model.
+      klass: Class of model.
+      _q (str): Query for database.
+      _conditions (dict): All conditions from filter.
+      _order_by (str): Description of order how returns list of instance.
+      _limit (str): Simple MySQL limit statement.
+    '''
+
     def __init__(self, instance, klass):
         self.instance = instance
         self.klass = klass
@@ -54,16 +48,15 @@ class Query(metaclass=BasicQuery):
         self._limit = None
 
     def __call__(self):
-        '''
-            Return list of elements
-        '''
+        '''Returns list of model instance.'''
+
         return list(self.__iter__())
 
     def __iter__(self):
         if self._q is None:
             raise StopIteration
         else:
-            self.build_query()
+            self._build_query()
             response_elements = execute_sql(self._q)
             if response_elements is None:
                 raise StopIteration
@@ -93,7 +86,7 @@ class Query(metaclass=BasicQuery):
                 self._limit = 'LIMIT %s, %s ' % start_number
         return self
 
-    def build_query(self):
+    def _build_query(self):
         if self._conditions:
             self._q += ' ' + \
                 self._parse_conditions_to_sql(**self._conditions)
@@ -106,8 +99,14 @@ class Query(metaclass=BasicQuery):
             self._limit = None
 
     def create(self, raw_json=None, **kwargs):
-        '''
-            Create, save and returned instance of object
+        '''Saves to databases and returns instance of model.
+
+        Args:
+          raw_json (json, optional): Json data for create model. Defaults to None.
+          kwargs: Kwargs for create model. This same like fields in model.
+
+        Returns:
+          Instance of model.
         '''
         if raw_json is not None:
             kwargs_from_json = json.loads(raw_json)
@@ -118,6 +117,11 @@ class Query(metaclass=BasicQuery):
         return instance
 
     def delete(self, id=None):
+        '''Delete model from databases.
+
+        Args:
+          id: Id of model which should be remove.
+        '''
         if id is not None or self.instance.id:
             table_name = self.klass.__name__.lower()
             sql = 'DELETE FROM %s WHERE id = %s' % (table_name,
@@ -125,6 +129,16 @@ class Query(metaclass=BasicQuery):
             execute_sql(sql)
 
     def get_or_create(self, raw_json=None, **kwargs):
+        '''Gets or creates model and returns instance.
+
+        Note:
+          raw_json and kwargs are combined.
+
+        Args:
+          id (int, optional): Id of model in databases.
+          raw_json (json, optional): Json data for create model. Defaults to None.
+          kwargs: Kwargs for create model. This same like fields in model.
+        '''
         if raw_json is not None:
             kwargs_from_json = json.loads(raw_json)
             kwargs.update(kwargs_from_json)
@@ -136,9 +150,15 @@ class Query(metaclass=BasicQuery):
             instance = self.create(**kwargs)
         return instance
 
-    def get(self, **kwargs):
-        '''
-            Returns instance of Model
+    def get(self, resp_json=False, **kwargs):
+        '''Returns instance of Model.
+
+        Args:
+          id (int): Id of model in databases.
+          resp_json (bool): If true then returns json, otherwise instance.
+
+        Returns:
+          If exist then return instance of model or json.
         '''
         sql_query = self.klass._simple_query()
         sql_query += self._parse_conditions_to_sql(**kwargs)
@@ -147,37 +167,47 @@ class Query(metaclass=BasicQuery):
         except (TypeError, AttributeError):
             return None
         value = self.klass._value_parse_to_dict(*value)
+        if resp_json:
+            return json.dumps(value, default=json_serial)
         instance = self.klass(**value)
         instance.id = value['id']
         return instance
 
-    def get_in_json(self, **kwargs):
-        '''
-            Returns one Model in json
-        '''
-        sql_query = self.klass._simple_query()
-        sql_query += self._parse_conditions_to_sql(**kwargs)
-        try:
-            (*value, ) = execute_sql(sql_query).fetchone()
-        except (TypeError, AttributeError):
-            return None
-        value = self.klass._value_parse_to_dict(*value)
-        return json.dumps(value, default=json_serial)
-
     def all(self):
+        '''Prepares query for returns all instance from databases
+
+        Returns:
+          Instance of Query.
+        '''
         self._q = self.klass._simple_query()
         return self
 
     def filter(self, **kwargs):
-        '''
-            Build dict of conditions
-            TODO: Add support for advanced comparison
+        '''Build dict of conditions
+
+        Args:
+          kwargs: This same name like fields in model and value for condition.
+
+        Returns:
+          Instance of Query.
         '''
         self._q = self.klass._simple_query()
         self._conditions.update(kwargs)
         return self
 
     def order_by(self, *args):
+        '''Prepares query for returns instances in specific orders
+
+        Args:
+          args (string): This same name like fields in model.
+
+        Returns:
+          Instance of Query.
+
+        Examples:
+          Model.objects.all().order_by('id') # ASC
+          Model.objects.all().order_by('-id') # DESC
+        '''
         sql_query = 'ORDER BY '
         if not args:
             self._order_by = sql_query + 'id ASC'
@@ -193,6 +223,8 @@ class Query(metaclass=BasicQuery):
         return self
 
     def count(self):
+        '''Returns number model records in databases'''
+
         table_name = self.klass.__name__.lower()
         sql_query = 'SELECT COUNT(*) FROM %s' % table_name
         try:
@@ -202,14 +234,20 @@ class Query(metaclass=BasicQuery):
         return number
 
     def execute_query(self, query):
+        '''Execute query for databases and returns list of instance
+
+        Args:
+          query (string): Query to databases.
+
+        Returns:
+          List of models instance from result of query.
+        '''
         self._q = query
         return list(self)
 
     def json(self):
-        '''
-            Invoke self iter for list, created dict of fields
-            and value of instance then dump for raw json.
-        '''
+        '''Returns result of query in json.'''
+
         instances_list = []
         for instance in list(self.__iter__()):
             instance_to_dict = {}
@@ -218,16 +256,37 @@ class Query(metaclass=BasicQuery):
             instances_list.append(instance_to_dict)
         return json.dumps(instances_list, default=json_serial)
 
-    @classmethod
-    def _parse_conditions_to_sql(cls, **kwargs):
+    def _parse_conditions_to_sql(self, **kwargs):
         sql_query = ' WHERE '
         for key, value in kwargs.items():
             if not sql_query.endswith('WHERE '):
                 sql_query += ' AND '
-            sql_query += '%s = \'%s\'' % (key, value)
+            key, sign = self._parse_to_sign(key)
+            sql_query += '%s %s \'%s\'' % (key, sign, value)
         return sql_query
 
+    def _parse_to_sign(self, key):
+        signs = {'': '=', 'lt': '<', 'lte': '<=',
+                 'gt': '>', 'gte': '>=', 'like': 'like'}
+        for field in self.klass.Fields:
+            for sign in signs:
+                if sign == '':
+                    underscore = ''
+                else:
+                    underscore = '__'
+                temp_key = field + underscore + sign
+                if temp_key == key:
+                    return field, signs[sign]
+
     def update(self, raw_json=None, resp_json=False, **kwargs):
+        '''Updates a record from kwargs or from json
+        and returns instance of model or json.
+
+        Args:
+          raw_json (json, optional): Json data for update model. Default None.
+          resp_json (json, optional): If true then returns json, otherwise instance.
+          kwargs: This same name like fields in model with value for updates.
+        '''
         if self.instance:
             execute_sql(self._create_update_sql())
         else:
@@ -237,7 +296,7 @@ class Query(metaclass=BasicQuery):
             execute_sql(self._create_update_sql_from_kwargs(**kwargs))
             if kwargs.get('id', None):
                 if resp_json:
-                    return self.get_in_json(id=kwargs['id'])
+                    return self.get(id=kwargs['id'], resp_json=True)
                 return self.get(id=kwargs['id'])
 
     def _create_update_sql_from_kwargs(self, **kwargs):
@@ -268,8 +327,20 @@ class Query(metaclass=BasicQuery):
 
 class Field:
 
-    def __init__(self, blank=True):
+    '''Represents field in database.
+
+    Attributes:
+        primary_key (bool, optional): Describes whether field is primary key.
+        null (bool, optional): Describes whether field can be null in databases.
+        blank (bool, optional): Describes whether field can be blank.
+        default (optional): Default value which will be used for save to databases.
+    '''
+
+    def __init__(self, primary_key=False, null=True, blank=True, default=None):
+        self.primary_key = primary_key
+        self.null = null
         self.blank = blank
+        self.default = default
 
     def __get__(self, instance, klass):
         return getattr(instance, str(id(self)))
@@ -280,8 +351,11 @@ class Field:
     def simple_valid(self):
         def validation(instance):
             value = getattr(instance, str(id(self)))
-            if not self.blank and not value:
-                return False
+            if self.blank is False and not value:
+                if self.default is not None:
+                    return True
+                else:
+                    return False
             else:
                 return True
         return validation
@@ -294,15 +368,16 @@ class BasicModel(type):
         for klass in supers:
             fields.update(meta.parse_fields(klass))
         fields.update(meta.parse_dict_for_fields(classdict))
+        # Removes from fields alias pk
+        fields.pop('pk', None)
         classdict['Fields'] = tuple(sorted(fields))
         meta.create_validation_for_field(classdict, fields)
         return type.__new__(meta, classname, supers, classdict)
 
     @classmethod
     def parse_fields(cls, klass):
-        '''
-            Moves through in all bases of classes and builds dict of fields
-        '''
+        '''Moves through in all bases of classes and builds dict of fields'''
+
         fields = {}
 
         for supercls in klass.__bases__:
@@ -313,9 +388,8 @@ class BasicModel(type):
 
     @staticmethod
     def parse_dict_for_fields(classdict):
-        '''
-            Creates dict of fields and instance Field object
-        '''
+        '''Creates dict of fields and instance Field object'''
+
         fields = {}
         for attr, value in classdict.items():
             if isinstance(value, Field):
@@ -324,21 +398,21 @@ class BasicModel(type):
 
     @staticmethod
     def create_validation_for_field(classdict, fields_dict):
-        '''
-            Creating aliases for simple validations of fields
-        '''
+        '''Creating aliases for simple validations of fields'''
+
         for field, value in fields_dict.items():
             valid_field_name = 'valid_' + field
+            # Check if field is primary key then creates alias with name pk
+            if value.primary_key:
+                classdict['pk'] = value
             classdict[valid_field_name] = value.simple_valid()
 
 
 class Model(metaclass=BasicModel):
-    id = Field(blank=True)
+    id = Field(primary_key=True, blank=True)
 
     def __init__(self, *args, **kwargs):
-        '''
-            Create object attribute from class attribute of Fields
-        '''
+        ''' Create object attribute from class attribute of Fields'''
         self.id = None
         for field in self.__class__.Fields:
             if field != 'id':
@@ -355,7 +429,7 @@ class Model(metaclass=BasicModel):
 
     def save(self):
         '''
-            Saved is only if doesn't has id
+            Saved is only if doesn't has id, else run update
         '''
         if self.id is None:
             table_name = self.__class__.__name__.lower()
@@ -364,34 +438,52 @@ class Model(metaclass=BasicModel):
             cursor = execute_sql(sql_query)
             if cursor is not None:
                 self.id = cursor.lastrowid
+        else:
+            self.update()
         return self
 
     def update(self):
+        '''Update record databases of current instance'''
+
         self.objects.update()
 
     def delete(self):
+        '''Removes current object from databases'''
+
         self.objects.delete()
 
     def is_valid(self):
-        '''
-            Executing methods of validation for all fields
+        '''Checks all fields for error.
+
+        Executing methods of validation for all fields.
+
+        Returns:
+          True if all fields are valid, otherwise False.
         '''
         for field in self.__class__.Fields:
             # Preparing names of validation methods for field
             valid_field_name = 'valid_' + field
-            if not getattr(self, valid_field_name)():
+            if getattr(self, valid_field_name)() is False:
                 return False
         return True
 
     def _fields_values_to_str(self):
-        '''
-            Prepared tuple in string of object fields
-            values in the order of fields
-            Fields = ('id', 'list_id', 'name')
-            {'name': 'Something', 'list_id': 5}
-            > (5, 'Something)
-            If only one field then assume it is
-            'id' field then should be null for save
+        '''Parse fields values into string.
+
+        Prepared tuple in string of object fields
+        values in the order of fields.
+
+        Note:
+          If only one field then assume it is 'id'
+          field then should be null for save.
+
+        Returns:
+          String of fields value.
+
+        Examples:
+          Fields = ('id', 'list_id', 'name')
+          {'name': 'Something', 'list_id': 5}
+          (5, 'Something)
         '''
         if len(self.__class__.Fields) == 1:
             return "(NULL)"
@@ -402,8 +494,13 @@ class Model(metaclass=BasicModel):
 
     @classmethod
     def _value_parse_to_dict(cls, *value):
-        '''
-            Combines correct of value with fields and return dict
+        '''Combines correct of value with fields and return dict
+
+        Args:
+          value (tuple): Value which are fetched from database.
+
+        Returns:
+          Returns dict of fields with value.
         '''
         dict_values = {}
         for field, value in zip(cls.Fields, value):
@@ -412,16 +509,20 @@ class Model(metaclass=BasicModel):
 
     @classmethod
     def _simple_query(cls):
-        '''
-            Simple SQL query with names of fields and table name
-        '''
+        '''Simple SQL query with names of fields and table name'''
+
         return 'SELECT %s FROM %s' % (cls._parse_fields(), cls.__name__.lower())
 
     @classmethod
     def _parse_fields(cls):
-        '''
-            > Fields = ('id', 'list_id', 'name')
-            > tuple_of_fields = 'id, list_id, name'
+        '''Parse model fields into string.
+
+        Returns:
+          Returns string of fields name.
+
+        Examples:
+          Fields = ('id', 'list_id', 'name')
+          tuple_of_fields = 'id, list_id, name'
         '''
         tuple_of_fields = ''
         for key in cls.Fields:
@@ -435,10 +536,25 @@ class Model(metaclass=BasicModel):
 # Helpers
 
 
+def connect():
+    return MySQLdb.connect(**con_params)
+
+
+def execute_sql(statement=None):
+    try:
+        conn = connect()
+        cursor = conn.cursor()
+        cursor.execute(statement)
+        conn.commit()
+        return cursor
+    except MySQLdb.OperationalError:
+        return None
+    else:
+        conn.close()
+
+
 def json_serial(obj):
-    '''
-        JSON serializer for objects not serializable by default json code
-    '''
+    '''JSON serializer for objects not serializable by default json code'''
 
     if isinstance(obj, datetime):
         serial = obj.isoformat()
